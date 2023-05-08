@@ -12,7 +12,12 @@ put data at `data.csv`
 
 ```bash
 python3 main_zip.py 
+python3 main_zip.py --method zipoisson_zero_rate_by_org --force --int_plot_vis 0
+## --force force recalculation
+## --method specify the method to use
+## --int_plot_vis set to zero to disable visdom connection
 ```
+
 
 
 ### models explained:
@@ -51,5 +56,7 @@ Going back to the definiction of random effect:
 
 ### Changelog
 
+- v4:
+  - add parameter output in subfolder. expose more options to cli
 - v3:
   - remove parameter prior from v1. make loss value more comparable

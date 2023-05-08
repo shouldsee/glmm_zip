@@ -23,9 +23,11 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 tfb = tfp.bijectors
 
+import pickle
+import sys
+import numpy as np
 
 from dist_dummy import DummyDistribution
-x = DummyDistribution()
 
 # We will also do a quick check for availablility of a GPU:
 
@@ -400,16 +402,13 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
       # k = 'log_zero_rate'
 
   else:
-    raise RuntimeError('Method {method!r} not understood!')    
+    raise RuntimeError(f'Method {method!r} not understood!')    
 
   return tfd.JointDistributionCoroutineAutoBatched(model),initer, get_summary
 
 
 INF = 10000000
-import pickle
-import sys
 
-import numpy as np
 def main():
   argv = sys.argv
   ### gradient step size
@@ -424,12 +423,18 @@ def main():
   # num_steps = 3000
 
   ### step interval to update visdom plots
-  int_plot_vis = 100
+  v = 100
 
+  key = '--int_plot_vis'
+  if key in argv:
+    v = argv[argv.index(key)+1]
+    v = int(v)
+  int_plot_vis = v
   ### sample taken to estimate ELBO and gradient
   # sample_size=600
   # sample_size=2
-  sample_size=10
+  # sample_size=10
+  sample_size=100
   
   ### load data
   (feats, orgcode, count),df = load_data()
@@ -456,41 +461,42 @@ def main():
 
 
   def plot_vis(xdist,loss,output_file=output_file):
-    from visdom import Visdom
-    vis = Visdom()
+    if int_plot_vis>0:
+      from visdom import Visdom
+      vis = Visdom()
 
-    key = 'org_random_effect'
-    vis.boxplot(xdist[key].sample(1000).numpy(),win=output_file+'.'+key, opts={
-      'title':f'{output_file}<br>{key}<br>loss:{loss}',
-      'layoutopts': {
-      'plotly': {
-        'yaxis': {
-          'type': 'linear',
-          'range': [-2, 2],
-          'autorange': False,
+      key = 'org_random_effect'
+      vis.boxplot(xdist[key].sample(1000).numpy(),win=output_file+'.'+key, opts={
+        'title':f'{output_file}<br>{key}<br>loss:{loss}',
+        'layoutopts': {
+        'plotly': {
+          'yaxis': {
+            'type': 'linear',
+            'range': [-2, 2],
+            'autorange': False,
+          }
         }
-      }
-    }}
-    
-    )
+      }}
+      
+      )
 
 
-    key = 'feat_rate_effect'
-    # vis.line(xdist['feat_rate_effect'].mean().numpy(),win=output_file, opts={'title':output_file,'ymin':-5,'ymax':5})
-    vis.boxplot(xdist[key].sample(1000).numpy(),win=output_file+'.'+key, opts={
-      'title':f'{output_file}<br>{key}<br>loss:{loss}',
+      key = 'feat_rate_effect'
+      # vis.line(xdist['feat_rate_effect'].mean().numpy(),win=output_file, opts={'title':output_file,'ymin':-5,'ymax':5})
+      vis.boxplot(xdist[key].sample(1000).numpy(),win=output_file+'.'+key, opts={
+        'title':f'{output_file}<br>{key}<br>loss:{loss}',
 
-      'layoutopts': {
-      'plotly': {
-        'yaxis': {
-          'type': 'linear',
-          'range': [-2, 2],
-          'autorange': False,
+        'layoutopts': {
+        'plotly': {
+          'yaxis': {
+            'type': 'linear',
+            'range': [-2, 2],
+            'autorange': False,
+          }
         }
-      }
-    }}
-    
-    )  
+      }}
+      
+      )  
 
   features = feats
   ### (nsample,nfeat)
@@ -591,8 +597,37 @@ Labels shape:  {data_labels.shape}
 
     xdist = xd
     xpar = post.parameters
+    
+    
 
-  plot_vis(xdist,lossvals[-1])
+  for lv in lossvals[-5:]:
+    print('%.3f'%lv)
+  if int_plot_vis>0:
+    plot_vis(xdist,lossvals[-1])
+  xdir = output_file+'.paramdir'
+  if not os.path.exists(xdir): os.makedirs(xdir)
+
+  singulars= {}
+  for k,xdistt in xdist.items():
+    # breakpoint()
+    x = xdistt.mean().numpy()
+    xdev = xdistt.stddev().numpy()
+    shapel = xdistt.batch_shape.__len__()
+    if shapel==0:
+      singulars[k]= {}
+      singulars[k]['mean'] = x
+      singulars[k]['stddev'] = xdev
+    elif shapel == 1:
+      v = np.stack([x,xdev],-1)
+      pd.DataFrame(v,columns='mean stddev'.split()).to_csv( os.path.join(xdir,k)+'.csv') 
+    elif shapel == 2:
+      v = np.concatenate([x,xdev],-1)
+      pd.DataFrame(v,columns='mean stddev'.split()).to_csv( os.path.join(xdir,k)+'.csv') 
+      # pd.DataFrame(xdev).to_csv( os.path.join(xdir,k)+'.stddev.csv') 
+  if singulars:
+    # df = pd.DataFrame( [pd.Series(v) for v in singulars.values()],columns=singulars.keys())
+    k = 'singular'
+    pd.DataFrame(singulars).T.to_csv( os.path.join(xdir,k)+'.csv') 
 
 
 
