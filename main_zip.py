@@ -22,6 +22,9 @@ tfd = tfp.distributions
 tfb = tfp.bijectors
 
 
+from dist_dummy import DummyDistribution
+x = DummyDistribution()
+
 # We will also do a quick check for availablility of a GPU:
 
 # In[ ]:
@@ -57,11 +60,9 @@ def load_data():
 
 
 
+EPS = 1E-5
 
 # ### Specify Model
-
-
-
 
 
 # Initialize locations and scales randomly with `tf.Variable`s and 
@@ -71,6 +72,18 @@ _init_loc = lambda shape=(): tf.Variable(
 _init_scale = lambda shape=(): tfp.util.TransformedVariable(
     initial_value=tf.random.uniform(shape, minval=0.01, maxval=1.),
     bijector=tfb.Softplus())
+
+### use very wide uniform distribution for uninformed prior
+PRIOR_DIST = DummyDistribution
+def _get_prior(val=None,val2=0,name=None):
+  # _distc = _get_prior
+  _distc = DummyDistribution
+  if val is None or isinstance(val,(float,int)):
+    return _distc(-INF,INF,name=name)
+  else:
+    zval = tf.zeros_like(val)
+    return _distc(-INF+zval,INF+zval,name=name)    
+
 def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='poisson'):
   nsample = feats.shape[0]
   if method == 'poisson':
@@ -78,12 +91,16 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
     def model():
       ### Simple Poisson Model
       ### use very wide uniform distribution for uninformed prior
-      intercept      = yield tfd.Uniform(-INF,INF,name='lograte_intercept')
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+      # intercept      = yield _get_prior(-INF,INF,name='lograte_intercept')
+      intercept      =    yield _get_prior(name='lograte_intercept')
+      feat_rate_effect   = yield _get_prior(tf.zeros((nfeat,1)),name='feat_rate_effect')
+      # feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect = yield _get_prior(tf.zeros(norg),name='org_random_effect')
       
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
+      # log_rate_noise =  yield tfd.Normal(loc=log_rate, scale=1., name='log_rate_noise')
+
 
       yield tfd.Poisson(log_rate = log_rate,name='likelihood')
 
@@ -101,15 +118,19 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
     def model():
       ### use very wide uniform distribution for uninformed prior
 
+      # feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+
+
       # county_scale   = yield tfd.HalfNormal(scale=1., name='scale_prior')
       # intercept = yield tfd.Normal(loc=0., scale=1., name='intercept')
-      intercept      = yield tfd.Uniform(-INF,INF,name='lograte_intercept')
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+
+      log_zero_rate      = yield _get_prior(name='log_zero_rate')
+      feat_rate_effect   = yield _get_prior(tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect  = yield _get_prior(tf.zeros(norg),name='org_random_effect')
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
 
-      log_zero_rate = yield tfd.Uniform(-INF,INF,name='log_zero_rate')
+      # log_zero_rate = yield _get_prior(-INF,INF,name='log_zero_rate')
       zero_prob = tf.sigmoid(log_zero_rate) + tf.zeros(nsample)
 
       zero_inflated_poisson = tfd.Mixture(
@@ -122,10 +143,10 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
     def initer():
       return dict(
             # scale_prior=tfb.Softplus()(tfd.Normal(_init_loc(), _init_scale())),           
-            lograte_intercept = tfd.Normal(_init_loc(), _init_scale()),                           
-            feat_rate_effect = tfd.Normal(_init_loc([nfeat,1]), _init_scale([nfeat,1])),            
+            # lograte_intercept = tfd.Normal(_init_loc(), _init_scale()),                           
+            feat_rate_effect  = tfd.Normal(_init_loc([nfeat,1]), _init_scale([nfeat,1])),            
             org_random_effect = tfd.Normal(_init_loc([norg]),_init_scale([norg]) ),    
-            log_zero_rate = tfd.Normal(_init_loc(), _init_scale()),                           
+            log_zero_rate     = tfd.Normal(_init_loc(), _init_scale()),                           
                     
             # county_prior= tfd.Normal(_init_loc([n_counties]), _init_scale([n_counties])),
             # log_zero_prob=  tfd.Normal(_init_loc(), _init_scale()),
@@ -139,17 +160,17 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
   elif method == 'zipoisson_zero_rate_by_org':
 
     def model():
-      ### use very wide uniform distribution for uninformed prior
 
+        
       # county_scale   = yield tfd.HalfNormal(scale=1., name='scale_prior')
       # intercept = yield tfd.Normal(loc=0., scale=1., name='intercept')
-      intercept      = yield tfd.Uniform(-INF,INF,name='lograte_intercept')
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+      intercept         = yield _get_prior(None,name='lograte_intercept')
+      feat_rate_effect  = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
 
-      log_zero_rate = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='log_zero_rate')
+      log_zero_rate = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='log_zero_rate')
       zero_prob =tf.sigmoid(tf.gather(log_zero_rate,orgcode,-1))
 
       zero_inflated_poisson = tfd.Mixture(
@@ -183,10 +204,12 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
         header = f'{k}.{xpi}'
         header = header[:nh] + max(0,15-len(header))*' '+' '
         print(f'{header}    mean:{xpmean}   stddev:{xpdev}')
+        if xpi==nmax:break
 
       for xpi,(xpmean,xpdev) in enumerate(zip(xp.mean(),xp.stddev())):
         # xd[k]):
         print(f'{k}.{xpi}.sigmoid  mean:{tf.sigmoid(xpmean)}   stddev:{xpdev}')
+        if xpi==nmax:break
       # for xpi,xpp in enumerate(xd[k]):
       #   print(f'{k}.sigmoid.{xpi} {tf.sigmoid(xpp.mean())}   {(xpp.stddev())}')
 
@@ -201,20 +224,20 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
 
       # county_scale   = yield tfd.HalfNormal(scale=1., name='scale_prior')
       # intercept = yield tfd.Normal(loc=0., scale=1., name='intercept')
-      intercept      = yield tfd.Uniform(-INF,INF,name='lograte_intercept')
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+      intercept      =    yield _get_prior(-INF,INF,name='lograte_intercept')
+      feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
 
       # log_zero_rate = yield tfd.Normal(tf.zeros(norg), scale = INF*tf.ones(norg), name='log_zero_rate')
-      feat_zerorate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
+      feat_zerorate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
 
-      log_zero_rate_org = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='log_zero_rate') 
-      zero_prob = tf.sigmoid(tf.gather(log_zero_rate_org,orgcode,-1) + tf.squeeze(tf.matmul(feats,feat_zerorate_effect),-1))
+      log_zero_rate_org    = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='log_zero_rate') 
+      zero_prob            = tf.sigmoid(tf.gather(log_zero_rate_org,orgcode,-1) + tf.squeeze(tf.matmul(feats,feat_zerorate_effect),-1))
 
       zero_inflated_poisson = tfd.Mixture(
-          cat=tfd.Categorical(probs=tf.stack([zero_prob, 1.0 - zero_prob],axis=-1)),
+          cat=tfd.Categorical(probs=tf.stack([EPS+zero_prob, EPS+1.0 - zero_prob],axis=-1)),
           components=[tfd.Deterministic(loc= 0 + tf.zeros(nsample)), tfd.Poisson(log_rate=log_rate)],
           name='likelihood'
       )      
@@ -245,6 +268,7 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
         header = f'{k}.{xpi}'
         header = header[:nh] + max(0,15-len(header))*' '+' '
         print(f'{header}    mean:{xpmean}   stddev:{xpdev}')
+        if xpi==nmax:break
 
       for xpi,(xpmean,xpdev) in enumerate(zip(xp.mean(),xp.stddev())):
         # xd[k]):
@@ -252,6 +276,7 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
       # for xpi,xpp in enumerate(xd[k]):
       #   print(f'{k}.sigmoid.{xpi} {tf.sigmoid(xpp.mean())}   {(xpp.stddev())}')
 
+        if xpi==nmax:break
 
       # print(f'{k}          mean:{xd[k].mean()[:nmax]}  stddev:{xd[k].stddev()[:nmax]} ')
       # print(f'{k}.sigmoid  mean:{tf.sigmoid(xd[k].mean()[:nmax])}  stddev:{xd[k].stddev()[:nmax]} ')
@@ -263,18 +288,19 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
 
       # county_scale   = yield tfd.HalfNormal(scale=1., name='scale_prior')
       # intercept = yield tfd.Normal(loc=0., scale=1., name='intercept')
-      intercept      = yield tfd.Uniform(-INF,INF,name='lograte_intercept')
+      intercept      = yield _get_prior(-INF,INF,name='lograte_intercept')
       
 
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+      feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
 
       log_rate = tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) + intercept
       zero_prob = tf.sigmoid(org_random_effect_ins)
       
+
       zero_inflated_poisson = tfd.Mixture(
-          cat=tfd.Categorical(probs=tf.stack([zero_prob, 1.0 - zero_prob],axis=-1)),
+          cat=tfd.Categorical(probs=tf.stack([EPS+zero_prob, EPS+1.0 - zero_prob],axis=-1)),
           components=[tfd.Deterministic(loc= 0 + tf.zeros(nsample)), tfd.Poisson(log_rate=log_rate)],
           name='likelihood'
       )      
@@ -306,13 +332,14 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
         header = f'{k}.{xpi}'
         header = header[:nh] + max(0,15-len(header))*' '+' '
         print(f'{header}    mean:{xpmean}   stddev:{xpdev}')
+        if xpi==nmax:break
 
       for xpi,(xpmean,xpdev) in enumerate(zip(xp.mean(),xp.stddev())):
         # xd[k]):
         print(f'{k}.{xpi}.sigmoid  mean:{tf.sigmoid(xpmean)}   stddev:{xpdev}')
+        if xpi==nmax:break
       # for xpi,xpp in enumerate(xd[k]):
       #   print(f'{k}.sigmoid.{xpi} {tf.sigmoid(xpp.mean())}   {(xpp.stddev())}')
-
 
       # print(f'{k}          mean:{xd[k].mean()[:nmax]}  stddev:{xd[k].stddev()[:nmax]} ')
       # print(f'{k}.sigmoid  mean:{tf.sigmoid(xd[k].mean()[:nmax])}  stddev:{xd[k].stddev()[:nmax]} ')      
@@ -323,19 +350,20 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
 
       # county_scale   = yield tfd.HalfNormal(scale=1., name='scale_prior')
       # intercept = yield tfd.Normal(loc=0., scale=1., name='intercept')
-      intercept      = yield tfd.Uniform(-INF,INF,name='log_zerorate_intercept')
-      feat_rate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield tfd.Uniform(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
+      intercept          = yield _get_prior(-INF,INF,name='log_zerorate_intercept')
+      feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
+      org_random_effect  = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='org_random_effect')
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
 
       # log_zero_rate = yield tfd.Normal(tf.zeros(norg), scale = INF*tf.ones(norg), name='log_zero_rate')
-      feat_zerorate_effect   = yield tfd.Uniform(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
+      feat_zerorate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
 
       zero_prob = tf.sigmoid( tf.squeeze(tf.matmul(feats,feat_zerorate_effect),-1) + intercept)
 
+
       zero_inflated_poisson = tfd.Mixture(
-          cat=tfd.Categorical(probs=tf.stack([zero_prob, 1.0 - zero_prob],axis=-1)),
+          cat=tfd.Categorical(probs=tf.stack([EPS+zero_prob, EPS+1.0 - zero_prob],axis=-1)),
           components=[tfd.Deterministic(loc= 0 + tf.zeros(nsample)), tfd.Poisson(log_rate=log_rate)],
           name='likelihood'
       )      
@@ -397,7 +425,8 @@ def main():
   # num_steps = 3000
   int_plot_vis = 100
   # sample_size=600
-  sample_size=2
+  # sample_size=2
+  sample_size=10
   (feats, orgcode, count),df = load_data()
   # df.head()
   method = 'poisson'
@@ -405,8 +434,15 @@ def main():
   # method = 'zipoisson_zero_rate_by_org'
   # # method = 'zipoisson_zero_rate_full'
   # method = 'zipoisson_orgcode_only'
-  # method = 'zipoisson_zero_rate_feat_only'
+  v = 'zipoisson_zero_rate_feat_only'
   argv = sys.argv
+  key = '--method'
+  v = 'poisson'
+  if key in argv:
+    v = argv[argv.index(key)+1]
+  method = v
+
+  
   output_file = f'{method}.{num_steps}.pkl'
   force = '--force' in argv
 
@@ -465,7 +501,7 @@ def main():
     from visdom import Visdom
     vis = Visdom()
     # vis.bar(edgs[:-1]+0.5, cts )
-    vis.bar( cts )
+    vis.bar( cts,win='data_count_histogram')
 
   print(f'''
 ### Loading Data
