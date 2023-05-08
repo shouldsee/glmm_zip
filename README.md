@@ -1,8 +1,14 @@
+## Dep
+
+```
 tensorflow==2.11.0
 tensorflow-probability==0.19.0
 visdom==0.1.8.9
+```
 
 ## Usage
+
+put data at `data.csv`
 
 ```bash
 python3 main_zip.py 
