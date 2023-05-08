@@ -27,7 +27,7 @@ v3 result. It is evident that incorporating the per-org zero-rate improves the E
 - zipoisson_zero_rate_full: same as poisson, with a ZIP of zerorate with per-orgcode effect + shared feature effect
 - zipoisson_orgcode_only: ZIP with lograte from only shared feature effects , and zerorate from per-orgcode effect
 
-![](./v3_result.png)
+![v3_result](./v3_result.png)
 
 ## Design Choices
 
