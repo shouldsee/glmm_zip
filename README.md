@@ -44,9 +44,9 @@ This repo uses approach (1) at the moment
 
 Going back to the definiction of random effect:
 
-(1) assigning a random effect to each of the different orgcode? or
-(2) should the orgcode effect be sampled from a distribtion with tied variance (also known as pooling)? I am doing (1) at the moment if it's ok
-(3) in the [url](https://www.tensorflow.org/probability/examples/Linear_Mixed_Effects_Models) outlining tensorflow example, they assigned a per-group effect, and added a prior with zero-centered gaussian with tied deviation. which looks unnecessary if we are using the uniform prior
+- (1) assigning a random effect to each of the different orgcode? or
+- (2) should the orgcode effect be sampled from a distribtion with tied variance (also known as pooling)? I am doing (1) at the moment if it's ok
+- (3) in the [url](https://www.tensorflow.org/probability/examples/Linear_Mixed_Effects_Models) outlining tensorflow example, they assigned a per-group effect, and added a prior with zero-centered gaussian with tied deviation. which looks unnecessary if we are using the uniform prior
 
 
 ### Changelog
