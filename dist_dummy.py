@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""The Uniform distribution class."""
+"""The Dummy distribution class. Adapted from tfd.Uniform. log_p always zero
+Adapted for tensorflow==2.11.0
+"""
 
 import numpy as np
 import tensorflow.compat.v2 as tf

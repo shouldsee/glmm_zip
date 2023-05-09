@@ -23,6 +23,7 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 tfb = tfp.bijectors
 
+
 import pickle
 import sys
 import numpy as np
@@ -411,6 +412,16 @@ INF = 10000000
 
 def main():
   argv = sys.argv
+  v = 1
+  key = '--plot_png'
+  if key in argv:
+    v = argv[argv.index(key)+1]
+    v = int(v)
+  is_plot_png = v
+  if is_plot_png:
+    import matplotlib; matplotlib.use('agg')
+    import matplotlib.pyplot as plt
+
   ### gradient step size
   # learning_rate = 1e-2
   learning_rate = 5e-3
@@ -623,6 +634,30 @@ Labels shape:  {data_labels.shape}
     elif shapel == 2:
       v = np.concatenate([x,xdev],-1)
       pd.DataFrame(v,columns='mean stddev'.split()).to_csv( os.path.join(xdir,k)+'.csv') 
+    if is_plot_png and k in 'feat_rate_effect':
+      # matplotlib
+            
+      v3 = np.abs(v[:,0])+1.96*np.abs(v[:,1])
+      rg = max(v3) * 1.05  ### upper and lower size
+      title = 'Title: Fixed Effect for Features \n Parameter: '+k 
+      xlab = 'Index'
+      ylab = 'Value'
+      DPI = 80
+      FIG_H_PIXEL = 800
+      FIG_W_PIXEL = 600
+      dpi = DPI
+      fig,axs = plt.subplots(1,1,figsize=[FIG_H_PIXEL/dpi,FIG_W_PIXEL/dpi],dpi=dpi)
+      # plt.barh( range(len(v)), v[:,0], xerr=1.96 * v[:,1], align='center', alpha=0.5)
+      # plt.errorbar( y=range(len(v)), x=v[:,0], yerr=0.25, xerr=1.96 * v[:,1], alpha=0.5,linestyle='')
+      plt.errorbar( x=range(len(v)), y=v[:,0], xerr=0.25, yerr=1.96 * v[:,1], color='blue', alpha=0.5,linestyle='',elinewidth=3)
+      plt.xticks( range(len(v)), np.arange(len(v))+1)
+      plt.ylim(-rg,rg)
+      plt.axhline(0)
+      plt.xlabel(xlab)
+      plt.ylabel(ylab)
+      plt.title(title)
+      fig.savefig(xdir+'/'+k+'.png',dpi=dpi)
+      plt.close(fig)
       # pd.DataFrame(xdev).to_csv( os.path.join(xdir,k)+'.stddev.csv') 
   if singulars:
     # df = pd.DataFrame( [pd.Series(v) for v in singulars.values()],columns=singulars.keys())
@@ -638,3 +673,5 @@ if __name__=='__main__':
   main()
   print('[done]')
   import pdb;pdb.set_trace()
+
+

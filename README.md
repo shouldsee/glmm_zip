@@ -4,6 +4,7 @@
 tensorflow==2.11.0
 tensorflow-probability==0.19.0
 visdom==0.1.8.9
+matplotlib==3.5.3
 ```
 
 ## Usage
@@ -34,6 +35,10 @@ v3 result. It is evident that incorporating the per-org zero-rate improves the E
 
 ![v3_result](v3_result.png?raw=true)
 
+### output plots
+
+![feat_rate_effect.png](./feat_rate_effect.png?raw=true)
+
 ## Design Choices
 
 ### Parameter Parismony
@@ -54,8 +59,12 @@ Going back to the definiction of random effect:
 - (3) in the [url](https://www.tensorflow.org/probability/examples/Linear_Mixed_Effects_Models) outlining tensorflow example, they assigned a per-group effect, and added a prior with zero-centered gaussian with tied deviation. which looks unnecessary if we are using the uniform prior
 
 
+
+
 ### Changelog
 
+- v5:
+  - adding matplotlib png
 - v4:
   - add parameter output in subfolder. expose more options to cli
 - v3:
