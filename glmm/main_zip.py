@@ -31,24 +31,21 @@ import numpy as np
 from dist_dummy import DummyDistribution
 
 # We will also do a quick check for availablility of a GPU:
-
-# In[ ]:
-
-
 if tf.test.gpu_device_name() != '/device:GPU:0':
   print("We'll just use the CPU for this run.")
 else:
   print('Huzzah! Found GPU: {}'.format(tf.test.gpu_device_name()))
 
-
-# ### Obtain Dataset:
-# 
-# We load the dataset from TensorFlow datasets and do some light preprocessing.
-
-# In[ ]:
+### a very small number
+EPS = 1E-5
+### a very big number
+INF = 10000000
 
 
 def load_data():
+    '''
+    Load dataset
+    '''
     fn = 'data.csv'
     df = pd.read_csv(fn)
 
@@ -65,10 +62,9 @@ def load_data():
 
 
 
-EPS = 1E-5
 
-# ### Specify Model
 
+### convenience functions to initialise loc-scale parameters
 
 # Initialize locations and scales randomly with `tf.Variable`s and 
 # `tfp.util.TransformedVariable`s.
@@ -99,7 +95,15 @@ def _get_prior(val=None,val2=0,name=None):
 
 def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='poisson'):
   '''
-  For each method, initialise 3 objects
+  This function initialise 
+
+  For each method, initialise and return 3 objects (joint, initer, get_summary)
+    - joint: type:JointDistributionCoroutineAutoBatched 
+    is the object representing the joint distribution of 
+    parameters and data likelihood.
+    - initer: callable that returns a dictionary containing the initial distribution
+    for surrogate posteror
+    - 
   '''
   nsample = feats.shape[0]
   if method == 'poisson':
@@ -107,11 +111,11 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
     def model():
       ### Simple Poisson Model
       ### use very wide uniform distribution for uninformed prior
-      # intercept      = yield _get_prior(-INF,INF,name='lograte_intercept')
-      intercept      =    yield _get_prior(name='lograte_intercept')
-      feat_rate_effect   = yield _get_prior(tf.zeros((nfeat,1)),name='feat_rate_effect')
+      # intercept        = yield _get_prior(-INF,INF,name='lograte_intercept')
+      # intercept          = yield _get_prior(name='lograte_intercept')
+      feat_rate_effect   = yield _get_prior(tf.zeros((nfeat,1)), name='feat_rate_effect')
       # feat_rate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_rate_effect')
-      org_random_effect = yield _get_prior(tf.zeros(norg),name='org_random_effect')
+      org_random_effect  = yield _get_prior(tf.zeros(norg),      name='org_random_effect')
       
       org_random_effect_ins = tf.gather( org_random_effect, orgcode,axis=-1)
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
@@ -122,7 +126,7 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
 
     def initer():
       return dict(
-            lograte_intercept = tfd.Normal(_init_loc(), _init_scale()),                           
+            # lograte_intercept = tfd.Normal(_init_loc(), _init_scale()),                           
             feat_rate_effect  = tfd.Normal(_init_loc([nfeat,1]), _init_scale([nfeat,1])),            
             org_random_effect = tfd.Normal(_init_loc([norg]),_init_scale([norg]) ),            
             )
@@ -247,7 +251,7 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
       log_rate = org_random_effect_ins + tf.squeeze(tf.matmul( feats,feat_rate_effect),-1) 
 
       # log_zero_rate = yield tfd.Normal(tf.zeros(norg), scale = INF*tf.ones(norg), name='log_zero_rate')
-      feat_zerorate_effect   = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
+      feat_zerorate_effect = yield _get_prior(-INF+tf.zeros((nfeat,1)),INF+tf.zeros((nfeat,1)),name='feat_zerorate_effect')
 
       log_zero_rate_org    = yield _get_prior(-INF+tf.zeros(norg),INF+tf.zeros(norg),name='log_zero_rate') 
       zero_prob            = tf.sigmoid(tf.gather(log_zero_rate_org,orgcode,-1) + tf.squeeze(tf.matmul(feats,feat_zerorate_effect),-1))
@@ -408,7 +412,6 @@ def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='pois
   return tfd.JointDistributionCoroutineAutoBatched(model),initer, get_summary
 
 
-INF = 10000000
 
 def main():
   argv = sys.argv
@@ -639,7 +642,7 @@ Labels shape:  {data_labels.shape}
             
       v3 = np.abs(v[:,0])+1.96*np.abs(v[:,1])
       rg = max(v3) * 1.05  ### upper and lower size
-      title = 'Title: Fixed Effect for Features \n Parameter: '+k 
+      title = 'Title: Fixed Effect for Features \n (Showing 95% Credibility Interval) \n Parameter: '+k 
       xlab = 'Index'
       ylab = 'Value'
       DPI = 80
