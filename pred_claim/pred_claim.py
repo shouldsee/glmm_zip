@@ -1,5 +1,6 @@
 
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 from random import sample
 from six.moves import urllib
 
@@ -21,9 +22,6 @@ import pickle
 import sys
 import numpy as np
 from dist_dummy import DummyDistribution
-
-
-
 
 
 def plot_scatter_2d(xs,ys,xbins=None,ybins=None):
@@ -56,6 +54,35 @@ def plot_scatter_2d(xs,ys,xbins=None,ybins=None):
     return fig
     # plt.xticks(ygd[1:]);
 
+
+
+#### model file recognise the 
+x = '''
+Region                  Type_1
+Scheme                  Type_1
+IsClinical                   1
+Incident_Year             2011
+Notification_Year         2015
+Grouped Claim                1
+PortalClaim                  0
+Injury                 Type_55
+Cause                  Type_37
+Specialty              Type_34
+Location                Type_3
+Age at incident             69
+IsPatientMale                0
+Distance                   5.1
+Est_Settlement_Year       2021
+Est_Claim_Outcome            1
+Est_Value                 4900
+Settlement_Year           2021
+Claim_Outcome                1
+Value                     3500
+'''
+x = x.strip()
+x = [xx.rsplit(None,1)[0] for xx in x.splitlines()]
+DATA_INPUT_COLS = x
+
 def tidy_data(fn, test_fn):
     '''
     Load csv and tidy up data
@@ -65,6 +92,7 @@ def tidy_data(fn, test_fn):
     '''
     
     df = pd.read_csv(fn)
+    df = df[DATA_INPUT_COLS]  
     for k in 'Settlement_Year Incident_Year Notification_Year Est_Settlement_Year'.split():
         df[k] = df[k].str.split('/').str.get(0).astype(int)
     df['Value'] = df.eval('Value * Claim_Outcome')  ### patch negative values
@@ -108,11 +136,6 @@ def _get_prior(val=None,val2=0,name=None):
     return _distc(-INF+zval,INF+zval,name=name)    
 
 
-# def train(model, data, output_fn):
-# def make_joint_distribution_coroutine(feats, orgcode, norg, nfeat, method ='poisson'):
-
-# _init_loc = lambda shape=(): tf.Variable(
-#     tf.random.uniform(shape, minval=-3., maxval=3.))
 
 _init_loc = lambda shape=(): tf.Variable(
     tf.random.uniform(shape, minval=-0.01, maxval=0.01))
@@ -126,181 +149,9 @@ def _init_scale(shape=()):
   return xs
 # _init_scale = lambda shape=(): tf.clip_by_value( , 0,3)
 
-def make_joint_distribution_coroutine(
-    # feats   = None,
-    nyear = 10,
-    nfeat = 50,
-    method = None,
-):
-
-
-    def model(feats):
-        ### use very wide uniform distribution for uninformed prior
-
-        nsample = len(feats)
-
-
-        prob_to_settle_bias  = yield _get_prior(-INF+tf.zeros((1,nyear)), INF+tf.zeros((1,nyear)),name='prob_to_settle_bias')
-        prob_to_settle_coef  = yield _get_prior(-INF+tf.zeros((nfeat,nyear)), INF+tf.zeros((nfeat,nyear)),name='prob_to_settle_coef')
-        value_log_rate_bias  = yield _get_prior(-INF,INF,name='value_log_rate_bias')
-        value_log_rate_coef  = yield _get_prior(-INF+tf.zeros((nfeat,1)), INF+tf.zeros((nfeat,1)),name='value_log_rate_coef')
-        value_zero_prob_bias = yield _get_prior(-INF,INF,name='value_zero_prob_bias')
-        value_zero_prob_coef = yield _get_prior(-INF+tf.zeros((nfeat,1)), INF+tf.zeros((nfeat,1)),name='value_zero_prob_coef')
-
-
-    #   value_log_rate  = yield _get_prior(-INF,INF,name='lograte_intercept')
-        value_log_rate  = value_log_rate_bias  + tf.squeeze(tf.matmul( feats, value_log_rate_coef),-1)  
-        value_zero_prob = value_zero_prob_bias + tf.squeeze(tf.matmul( feats, value_zero_prob_coef),-1)
-        value_zero_prob = tf.sigmoid(value_zero_prob)
-
-        prob_to_settle = prob_to_settle_bias + tf.matmul( 
-            feats, prob_to_settle_coef)
-        
-
-
-        value_likelihood = yield tfd.Mixture(
-            cat        =  tfd.Categorical(probs=tf.stack([EPS + value_zero_prob, EPS + 1.0 - value_zero_prob],axis=-1)),
-            components = [tfd.Deterministic(loc= 0 + tf.zeros(nsample)), tfd.Poisson(log_rate=value_log_rate)],            
-        name='value_likelihood')
-
-        year_likelihood = yield tfd.Categorical(
-            probs = tf.nn.softmax( EPS+prob_to_settle, axis=-1)
-            ,name = 'year_likelihood')
-        # breakpoint()
-        # yield tfd.JointDistributionSequential([value_likelihood, year_likelihood])
-      
-    def initer():
-      
-      return dict(
-            # scale_prior=tfb.Softplus()(tfd.Normal(_init_loc(), _init_scale())),           
-            prob_to_settle_bias    = tfd.Normal(_init_loc((1,nyear)), _init_scale((1,nyear))),                           
-            prob_to_settle_coef    = tfd.Normal(_init_loc([nfeat,nyear]), _init_scale([nfeat,nyear])),            
-            value_log_rate_bias    = tfd.Normal(_init_loc([1,]), _init_scale([1,])),
-            value_log_rate_coef    = tfd.Normal(_init_loc([nfeat,1]), _init_scale([nfeat,1])),
-            value_zero_prob_bias   = tfd.Normal(_init_loc([1,]), _init_scale([1,])),
-            value_zero_prob_coef   = tfd.Normal(_init_loc([nfeat,1]), _init_scale([nfeat,1])),
-                    
-            )
-
-    def get_summary(post):
-      xd,xsample = post.sample_distributions()
-      k = 'value_log_rate_coef'
-      nmax = 5
-      # xp 
-      nh = 15
-      xp = xd[k]
-      for xpi,(xpmean,xpdev) in enumerate(zip(xp.mean(),xp.stddev())):
-        # xd[k]):
-        header = f'{k}.{xpi}'
-        header = header[:nh] + max(0,15-len(header))*' '+' '
-        print(f'{header}    mean:{xpmean}   stddev:{xpdev}')
-        if xpi==nmax:break
-
-      for xpi,(xpmean,xpdev) in enumerate(zip(xp.mean(),xp.stddev())):
-        # xd[k]):
-        print(f'{k}.{xpi}.sigmoid  mean:{tf.sigmoid(xpmean)}   stddev:{xpdev}')
-      # for xpi,xpp in enumerate(xd[k]):
-      #   print(f'{k}.sigmoid.{xpi} {tf.sigmoid(xpp.mean())}   {(xpp.stddev())}')
-        if xpi==nmax:break
-  
-    return model,initer, get_summary
-
-
-
-
-def step_train_model(
-  output_dict = dict(value=None,year_to_settle=None),
-  input_feats = None,
-  nfeat = 50,
-  nyear = 10,
-  # is_test_nan = False,
-  is_test_nan = True,
-  output_file = "temp.pkl",
-  force = False,
-  sample_size = 20,
-  num_steps =100,
-  learning_rate = 0.01,
-):
-
-
-
-  if os.path.exists(output_file) and not force:
-    ### skip computation if file already exists
-    with open(output_file,'rb')  as f:
-      lossvals, xpar, xdist = pickle.load(f)
-  else:
-
-    ### initialise instance
-    model_binder, param_initer, get_summary = make_joint_distribution_coroutine(
-        # feats   = None,
-        nyear = nyear,
-        nfeat = nfeat,
-        method = None,
-      )
-    model = lambda :model_binder(input_feats)
-    joint = tfd.JointDistributionCoroutineAutoBatched(model)
-
-    def target_log_prob_fn(**args):
-    #   return joint.log_prob(**args, joint_likelihood=output_dict)
-      # return joint.log_prob(**args, value_likelihood=output_dict['value'], year_likelihood = output_dict['year'])
-      # return 
-      loss = joint.log_prob(**args, value_likelihood=output_dict['value'], year_likelihood = output_dict['year'])
-      loss = tf.reduce_mean(loss, axis=0)
-      print(f'[prob]{loss}')
-      return loss
-
-
-    ### initialise parameter and thus surrogate_posterior
-    init_param = param_initer()
-    post = surrogate_posterior = tfd.JointDistributionNamedAutoBatched(init_param)
-    # post = surrogate_posterior = tfd.JointDistributionCoroutineAutoBatched(init_param)
-
-    ### RMSprop is very stable
-    # optimizer = tf.optimizers.Adam(learning_rate=1e-2)
-    optimizer = tf.optimizers.RMSprop( learning_rate=learning_rate )
-
-    def callback(qty, post=post):
-      # breakpoint()
-      print(f'[iter]{qty.step},  loss:{qty.loss:.1f}')
-
-      if not is_test_nan:
-        return [qty.loss][-1]
-      else:
-        for ig,g in enumerate(qty.gradients):
-          print(f'{ig} {tf.reduce_max(tf.math.abs(g)).numpy():.3f}')
-        for p in qty.parameters:
-          if tf.reduce_any(tf.math.is_nan(p)).numpy():
-            print(p)
-            print('NaN detected!')
-            breakpoint()
-        return qty.loss
-
-    ### print some summary 
-    get_summary(surrogate_posterior)
-
-    losses = tfp.vi.fit_surrogate_posterior(
-        target_log_prob_fn, 
-        surrogate_posterior,
-        optimizer=optimizer,
-        trace_fn = callback,
-        num_steps=num_steps, 
-        seed=42,
-        sample_size=sample_size)
-
-    lossvals = losses.numpy()
-    xd,xsample = post.sample_distributions()
-
-    print(f'Final Likelihood: {lossvals[-1]}')
-    get_summary(post)
-    with open(output_file,'wb') as f: 
-        pickle.dump([lossvals,post.parameters, post.sample_distributions()[0]] ,f)
-
-    xdist = xd
-    xpar = post.parameters
-
 
 class MyModel(tf.Module):
-  def __init__(self, nfeat, nyear):
+  def __init__(self, nfeat, nyear, cols):
     super().__init__()
     # Initialize the weights to `5.0` and the bias to `0.0`
     # In practice, these should be randomly initialized
@@ -308,6 +159,7 @@ class MyModel(tf.Module):
     # self.b = tf.Variable(0.0)
     self.trainable_weights = []
     _reg = lambda x:[self.trainable_weights.append(x),x][1]
+    self.columns = cols
 
     self.prob_to_settle_bias    = _reg( _init_loc((1,nyear)) )
     self.prob_to_settle_bias_input    = _reg( _init_loc((1,nfeat)) )
@@ -332,7 +184,8 @@ class MyModel(tf.Module):
 #   value_log_rate  = yield _get_prior(-INF,INF,name='lograte_intercept')
     value_log_rate  = value_log_rate_bias  + tf.squeeze(tf.matmul( feats + self.value_log_rate_bias_input , value_log_rate_coef),-1)  
     value_zero_prob = value_zero_prob_bias + tf.squeeze(tf.matmul( feats + self.value_zero_prob_bias_input, value_zero_prob_coef),-1)
-    value_zero_prob = tf.sigmoid(value_zero_prob)
+    # value_zero_prob = tf.sigmoid( 0.01* value_zero_prob)
+    value_zero_prob = tf.sigmoid( value_zero_prob)
 
     prob_to_settle = prob_to_settle_bias + tf.matmul( feats+ self.prob_to_settle_bias_input, prob_to_settle_coef)
 
@@ -385,6 +238,7 @@ class MyModel(tf.Module):
 
 
 def step_train(
+  model,
   output_file = "test.pkl",
 
   nfeat = 50,
@@ -395,6 +249,7 @@ def step_train(
   year  = None,
   input_feats = None,
   
+  is_fit=1, 
   force = False,
   learning_rate = 0.01,
   epochs = 2,
@@ -404,32 +259,21 @@ def step_train(
   year = year.astype('int32')
   input_feats = input_feats.astype('float32')
 
-  model = MyModel(nfeat,nyear)
-
-  if os.path.exists(output_file):
-    is_fit = 1
-    with open(output_file, 'rb' ) as f:
-      xs = pickle.load(f)
-      for i,x in enumerate(xs):
-        model.trainable_weights[i].assign(x)
-        #  = x[:] 
-      # breakpoint()
-    print(f'[loaded] from file {output_file!r}')
-  else:
-    is_fit = 1
 
   def loss_fn(dat):
     x,y = dat["input_feats"], dict(claim_value=dat["claim_value"],year=dat["year"])
     lp = model.log_prob(x, y)
     loss = tf.reduce_mean(-lp,0)
     return loss
+  
 
 
   optimizer = tf.optimizers.RMSprop( learning_rate=learning_rate )
 
 
   # Prepare the training dataset.
-  train_dataset = tf.data.Dataset.from_tensor_slices(dict(input_feats=input_feats, claim_value = claim_value, year=year))
+  train_dataset = tf.data.Dataset.from_tensor_slices(
+    dict(input_feats=input_feats, claim_value = claim_value, year=year))
   train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
 
   # Prepare the validation dataset.
@@ -469,18 +313,198 @@ def step_train(
 
           if step % 10 == 0:
               print(
-                  "Training loss (for one batch) at step %d: %.4f"
-                  % (step, float(loss_value))
+                  f" epoch={epoch}  step={step}  batch_train_loss={loss_value:.2f} "  
+                  + 
+                  f"learning_rate={learning_rate:.6f}"
               )
               # print("Seen so far: %s samples" % ((step + 1) * batch_size))  
 
-  with open(output_file,'wb') as f: 
-      pickle.dump(model.trainable_weights ,f)
-  print(f'[saved] to file {output_file!r}')
   return model
 
 
+def init_model(nfeat,nyear,input_model_file):
+  model = MyModel(nfeat,nyear,DATA_INPUT_COLS)
+
+  if os.path.exists(input_model_file):
+    is_fit = 1
+    with open(input_model_file, 'rb' ) as f:
+      xs = pickle.load(f)
+      # xs['weight']
+      assert model.columns == xs['columns'],f"Model file incompatible with current DATA_INPUT_COLS={DATA_INPUT_COLS}"
+      for i,x in enumerate(xs['weights']):
+        model.trainable_weights[i].assign(x)
+        #  = x[:] 
+      # breakpoint()
+    print(f'[loaded] from file {input_model_file!r}')
+  else:
+    is_fit = 1
+  return model
+
+
+
+def make_qc_plots(model,x, dat, config, prefix):
+  
+  input_feats = dat['input_feats']
+  claim_value = dat['claim_value']
+  year = dat['year']
+  nyear = config ['nyear']
+  
+  # samples = model(input_feats)[0].sample(len(input_feats))
+  samples = model(input_feats)[0].sample(1)
+  # breakpoint()
+  
+  try:
+    x.pop('EstClaimValue',)
+    x.pop('EstYear',)
+  except Exception as e:
+    print(e)
+
+  x['EstClaimValue'] = tf.reduce_mean(samples['claim_value'],0)
+  x['EstYear'] = tf.reduce_mean(samples['year'],0)
+  xs = x['EstClaimValue'].values
+
+  xs = x['EstClaimValue'].values
+  ys = claim_value.ravel()
+  xs = np.log2(1+xs)
+  ys = np.log2(1+ys)
+  fig = plot_scatter_2d(xs,ys)
+  plt.ylabel("predicted value")
+  plt.xlabel("actual value")
+  plt.title(f'QC: Claim Value\n  size N={len(xs)}')
+  fn = prefix+".qc_claim_value.png"
+  fig.savefig(fn)
+  print(f'[debug] outputing plots at  {fn!r}')
+
+  plt.close()
+
+  xs = x['EstYear'].values
+  ys = year.ravel()
+  fig = plot_scatter_2d(xs,ys)
+  END_YEAR = "SettlementYear"
+  START_YEAR = "Notification_Year"
+  plt.ylabel("predicted value")
+  plt.xlabel("actual value")
+  plt.title(f'QC: year-to-settle = ({END_YEAR} - {START_YEAR})\n size N={len(xs)}')
+  fn = prefix+".qc_year.png"
+  print(f'[debug] outputing plots at  {fn!r}')
+  fig.savefig(fn)
+  plt.close()
+
+
+  # df2 = pd.DataFrame(Total="EstClaim")
+# def plot_provision(df, maxim):
+  # nyear 
+  _claim = dat['claim_value']
+  _year = year
+  zs = np.tensordot( _claim.T,  np.eye(nyear+1)[_year],1).squeeze((0,1))
+  actual_agg = zs
+  nsample = 2000
+
+  #### predict the output for all cases for 2000 times and calculate uncertaintiyt
+  ### input_feats (ncase, nfeat)  -> samples['claim_value'] (ncase, 2000)  # sample 2000 predictions for claim_value 
+  ###                             -> samples['year']        (ncase, 2000)  # sample 2000 predictions for year to settle
+  samples = model(input_feats)[0].sample(nsample)  ### returns a dict of "year" "claim_value"
+
+  _claim = samples['claim_value'].numpy()
+  _year = samples['year'].numpy()
+  # breakpoint()
+  zs = np.matmul( _claim[:,None],  np.eye(nyear+1)[_year]).squeeze(1)
+  pred_agg = zs
+
+  plt.close()
+  fig,axs = plt.subplots(1,2,figsize=[12,4])
+  ax = axs[0]
+  plt.sca(ax)
+  ax.plot(actual_agg,'x--',label="train_data")
+  _m  = pred_agg.mean(axis=0)
+  _sd = pred_agg.std(axis=0)
+  # plt.errorbar( x=range(len(_m)), y=actual_agg, xerr=1., yerr=0.01, color='red', alpha=0.5,linestyle='',elinewidth=3)
+  plt.errorbar( x=range(len(_m)), y=_m, xerr=0.25, yerr=1.96 * _sd, color='blue', alpha=0.5,linestyle='',elinewidth=3,label="prediction")
+  plt.legend()
+  plt.ylabel("claim-value")
+  plt.xlabel("year-to-settle")
+  plt.title(f'QC: Aggregated claim value \n simulation size N={nsample}')
+  fn = prefix+".qc_agg-sum.png"
+  print(f'[debug] outputing plots at {fn!r}')
+  fig.savefig(fn)
+  plt.close()
+
+
+
+# breakpoint()
+def _get_input_feats(x):
+  '''
+  convert dataset to features
+  '''
+  out = []
+  ks = []
+  for k in x:
+    v = x[k]
+    if k.startswith('Est') or (k in "Settlement_Year Value Claim_Outcome".split()):
+      continue
+    elif v.dtype=="category":
+      v = v.cat.codes
+      vm = v.max()
+      xs = np.eye(vm+1)[v]
+    elif k in ("IsClinical,PortalClaim,Age at incident,IsPatientMale,Distance".split(",")+ ["Grouped Claim"]):
+      xs = v.values[:,None]
+    else:
+      # if v 
+      print(repr(k),v.dtype)
+      breakpoint()
+
+    ks.append((k,x[k].dtype.__repr__()))
+    out.append(xs)
+
+    pass
+  # print(ks)
+  return np.concatenate(out,1)
+
+
+# import docopt_subcommands as dsub
+from docopt import docopt 
+def optclean(args):
+    for k in list(args):
+        # k = k.strip('-<>')
+        args[k.strip("-<>")] = args.pop(k)
+    return args
+
 def main():
+  # argv = sys.argv
+  # args = docopt(DOC_TEMPLATE.format(program='pred_claim.py'), version='1.0',argv=argv)
+  args = docopt(DOC_TEMPLATE.format(program='pred_claim.py'), version='1.0',argv=None)
+  optclean(args)
+  _main(**args)
+  # dsub.main(program="pred_claim.py",
+  #  doc_template=DOC_TEMPLATE,argv=argv,commands=commands)
+
+
+
+def _main(
+
+  input_model_file,
+  is_fit,
+  data_csv,
+  learning_step_list,
+  output_model_prefix,
+  batch_size,
+  version,
+  help,
+):
+  is_fit = int(is_fit)
+  batch_size = int(batch_size)
+  def parse_lr_hist(learning_step_str):
+    lr_list = []
+    for v in learning_step_str.split('_'):
+      epc,lr = v.split('x')
+      epc = int(epc)
+      lr = lr.replace('d','.')
+      lr = float(lr)
+      lr_list.append((epc,lr))
+    return lr_list
+
+  lr_list = parse_lr_hist(learning_step_list)
+  
   if '--test' in sys.argv:
 
     nfeat = 50
@@ -509,118 +533,138 @@ def main():
       year  = year,
       input_feats = input_feats,
 
-      learning_rate = 0.001,
+      learning_rate = 0.0001,
       epochs = 2,
       batch_size = 20,
     )
 
   else:
-    fn = "dataset.csv"
-    (x,x1) , _ = tidy_data(fn,None)
+    fn = data_csv
+    train_hist_str = ""
+    if input_model_file:
+      try:
+        sp = input_model_file.rsplit('.',2)[1]
+        _ = parse_lr_hist(sp)        
+        train_hist_str = sp 
+      except Exception as e:
+        print(f'[fail] to extract train_hist from name {input_model_file} error:{e!r}')
+        
+
+    # diff_epoch = sum(x[0] for x in lr_list)
+    # total_epoch = init_epoch + diff_epoch
+    if not output_model_prefix:
+      if not input_model_file:
+        output_model_prefix = fn 
+      else:
+        try:
+          output_model_prefix = input_model_file.rsplit('.',2)[1]
+        except Exception as e:
+          output_model_prefix = input_model_file
+        
+    odir = os.path.dirname(os.path.realpath(output_model_prefix))
+    if not os.path.exists(odir):
+      os.makedirs(odir)
+
+    new_hist_str = learning_step_list
+    if train_hist_str:
+      new_hist_str = train_hist_str + "_" +learning_step_list
+    output_model_file = f'{output_model_prefix}.{new_hist_str}.pkl'
+    print(f'[param] output_model_prefix={output_model_prefix}')
+    print(f'[param] output_model_file={output_model_file}')
     
-    # breakpoint()
-    def _get_input_feats(x):
-      out = []
-      ks = []
-      for k in x:
-        v = x[k]
-        if k.startswith('Est') or (k in "Settlement_Year Value Claim_Outcome".split()):
-          continue
-        elif v.dtype=="category":
-          v = v.cat.codes
-          vm = v.max()
-          xs = np.eye(vm+1)[v]
-        elif k in ("IsClinical,PortalClaim,Age at incident,IsPatientMale,Distance".split(",")+ ["Grouped Claim"]):
-          xs = v.values[:,None]
-        else:
-          # if v 
-          print(repr(k),v.dtype)
-          breakpoint()
 
-        ks.append((k,x[k].dtype.__repr__()))
-        out.append(xs)
+    #### output model pickle file
 
-        pass
-      print(ks)
-      return np.concatenate(out,1)
+    (x,x1) , _ = tidy_data(fn,None)
 
     year = (x['Settlement_Year'] - x['Notification_Year'].astype(int)).values[:,None]
     claim_value = (x['Value']).values[:,None]    
     input_feats = _get_input_feats(x)
-
-    print(claim_value.max(),claim_value.min())
-    print(year.max(),year.min())
-
+    dat = dict(year=year,claim_value=claim_value,input_feats=input_feats)
 
     nfeat = input_feats.shape[1]
     nyear = np.max(year) + 1
-    # print(nyear)
-    # breakpoint()
-    # [0]+1
     nsample = input_feats.shape[0]
-    # print(nsample)
-    # input_feats = 
-    # breakpoint()
 
-    model = step_train(
-      output_file = fn+'.pkl',
+    model = init_model(nfeat,nyear,input_model_file)
+    conf = dict(nyear=nyear,nfeat=nfeat)
 
-      nfeat = nfeat,
-      nyear = nyear,
-      nsample = nsample,
+    make_qc_plots(model, x, dat, conf, output_model_file+".before-fit")
 
-      claim_value = claim_value,
-      year  = year,
-      input_feats = input_feats,
 
-      # learning_rate = 0.000001,
-      # learning_rate = 0.0001,
-      learning_rate = 0.001,
-      # learning_rate = 0.1,
-      epochs = 100,
-      batch_size = 20000,
-    )    
-    samples = model(input_feats)[0].sample(1000)
-    x['EstClaimValue'] = tf.reduce_mean(samples['claim_value'],0)
-    x['EstYear'] = tf.reduce_mean(samples['year'],0)
-    xs = x['EstClaimValue'].values
+    diff_epochs = 0
+    for (epochs,learning_rate) in lr_list:
+      diff_epochs += epochs
+      model = step_train(
+        model = model,
+        # output_file = output_file,
 
-    xs = x['EstClaimValue'].values
-    ys = claim_value.ravel()
-    fig = plot_scatter_2d(xs,ys)
-    fig.savefig(__file__+".qc_claim_value.png")
-    plt.close()
+        nfeat = nfeat,
+        nyear = nyear,
+        nsample = nsample,
 
-    xs = x['EstYear'].values
-    ys = year.ravel()
-    fig = plot_scatter_2d(xs,ys)
-    fig.savefig(__file__+".qc_year.png")
-    # breakpoint()
-    pass
+        claim_value = claim_value,
+        year  = year,
+        input_feats = input_feats,
+
+        learning_rate = learning_rate,
+
+        is_fit     = is_fit,
+        epochs     = epochs,
+        batch_size = batch_size,
+      )    
+    if diff_epochs:
+
+      with open(output_model_file,'wb') as f: 
+          pickle.dump(dict(weights=model.trainable_weights,columns = model.columns) ,f)
+      print(f'[saved] to file {output_model_file!r}')
+
+      make_qc_plots(model, x, dat, conf, output_model_file+".after-fit")
+
+
   sys.exit(0)
-'''
-(Pdb) x0.iloc[0]
-Region                  Type_1
-Scheme                  Type_1
-IsClinical                   1
-Incident_Year             2011
-Notification_Year         2015
-Grouped Claim                1
-PortalClaim                  0
-Injury                 Type_55
-Cause                  Type_37
-Specialty              Type_34
-Location                Type_3
-Age at incident             69
-IsPatientMale                0
-Distance                   5.1
-Est_Settlement_Year       2021
-Est_Claim_Outcome            1
-Est_Value                 4900
-Settlement_Year           2021
-Claim_Outcome                1
-Value                     3500
-'''
+
+DOC_TEMPLATE = f"""{{program}}
+
+Usage: {{program}} [options]  
+
+Options:
+  -h --help                Show this screen.
+  -v --version             Show the program version.
+  --is_fit IS_FIT          An integer to indicate whether to fit model [default: 1].
+  --data_csv DATA_CSV      CSV file to input as data [default: "./dataset.csv"].
+  --input_model_file INPUT_MODEL_FILE 
+                           .pkl file to input as model [default: ""].
+  --output_model_prefix OUTPUT_MODEL_PREFIX 
+                           prefix under which to save output model file [default: ""].
+  --learning_step_list LEARNING_STEP_LIST 
+                           Underscore delimited combinations of $EPOCHSx$LEARNING_RATE,
+                           with "d" instead of "." 
+                           for example "100x0d01_100x0d001" means 100 epochs at 0.01 learning rate, 
+                           then 100 epochs at 0.001 learning rate.
+                           [default: 0x1].
+  --batch_size BATCH_SIZE  Batch size for making gradient step  [default: 30000].
+
+
+Comment:
+  Make sure DATA_CSV contain the following columns {DATA_INPUT_COLS!r}
+
+Examples:
+  ### initial fitting of the model
+  python3 pred_claim.py --data_csv /tmp/dataset.csv --output_model_prefix ./mymodels/this-model --learning_step_list 100x0d01_100x0d001_100x0d0001 
+
+  ### continue fitting the model
+  python3 pred_claim.py --data_csv /tmp/dataset.csv --output_model_prefix ./mymodels/this-model --learning_step_list 100x0d0001  --input_model_file ./mymodels/this-model.100x0d01_100x0d001_100x0d0001.pkl
+
+  ### plotting the first model without fitting
+  python3 pred_claim.py --data_csv /tmp/dataset.csv --output_model_prefix ./test-plot --input_model_file ./mymodels/this-model.100x0d01_100x0d001_100x0d0001.pkl
+
+  ### plotting the first on other datasets
+  python3 pred_claim.py --data_csv other-dataset.csv --output_model_prefix ./test-plot --input_model_file ./mymodels/this-model.100x0d01_100x0d001_100x0d0001.pkl
+
+"""
+
+
 
 if __name__ == "__main__":
   main()
