@@ -60,8 +60,8 @@ Examples:
 ### QC plots
 
 
-![qc_agg](./test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_agg-sum.png)
+![qc_agg](./assets/test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_agg-sum.png)
 
-![qc_claim_value](./test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_claim_value.png)
+![qc_claim_value](./assets/test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_claim_value.png)
 
-![qc_year](./test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_year.png)
+![qc_year](./assets/test-plot.100x0d01_100x0d001_100x0d0001_0x1.pkl.after-fit.qc_year.png)
